@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+backend/.venv/
+backend/.uv-cache/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.npm-cache/
+frontend/dev-server*.log
+*.tsbuildinfo
+.env
+*.xlsx
