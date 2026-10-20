@@ -1,0 +1,10 @@
+{
+  "employees": [
+    {
+      "employee_code": "EXAMPLE",
+      "name": "Example Employee",
+      "salary": 30000,
+      "shift_hours": 8
+    }
+  ]
+}
