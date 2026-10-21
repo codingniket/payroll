@@ -49,8 +49,9 @@ export function PayrollTablePage({ kind }: { kind: "base" | "overtime" }) {
     replaceDrafts({ ...draftsRef.current, [key]: { employeeCode, field, text, sequence: ++sequence.current } });
   }
   function saveChanges(employeeCode: string, changes: PayrollChanges, key: string) {
+    const manualEntry = job?.basePayroll.some((row) => row.employeeCode === employeeCode && row.manualEntry);
     return mutate((current) => kind === "base"
-      ? payrollApi.updateBase(employeeCode, changes, current)
+      ? manualEntry ? payrollApi.updateManualBase(employeeCode, changes, current) : payrollApi.updateBase(employeeCode, changes, current)
       : payrollApi.updateOvertime(employeeCode, changes, current), key);
   }
   async function commit(key: string) {
@@ -142,13 +143,14 @@ export function PayrollTablePage({ kind }: { kind: "base" | "overtime" }) {
       {!rows.length ? <StateMessage title="Payroll has not been calculated." detail="Return to working hours and resolve the remaining records." /> :
         <div className="tableFrame"><table className="dataTable payrollTable"><thead><tr><th className="stickyColumn">Employee</th>{fields.map(([, label]) => <th key={label}>{label}</th>)}</tr></thead>
           <tbody>{rows.map((row) => <tr key={row.employeeCode}>
-            <td className="stickyColumn employeeCell"><strong>{row.employeeName}</strong><span>{row.employeeCode}</span>{row.attendanceSource === "not_uploaded" ? <small>Attendance not uploaded</small> : null}</td>
+            <td className="stickyColumn employeeCell"><strong>{row.employeeName}</strong><span>{row.employeeCode}</span>{kind === "base" && "manualEntry" in row && row.manualEntry ? <small>Manual payroll · review values; attendance unchanged</small> : row.attendanceSource === "not_uploaded" ? <><small>Attendance not uploaded</small>{kind === "base" ? <Button variant="quiet" size="small" disabled={busy || !!holidayDraft} onClick={() => void perform(async () => { await mutate((latest) => payrollApi.startManualBase(row.employeeCode, latest)); })}>Enter payroll manually</Button> : null}</> : null}</td>
             {fields.map(([field]) => {
-              if (row.attendanceSource === "not_uploaded") return <td key={field} />;
+              const manualEntry = kind === "base" && "manualEntry" in row && row.manualEntry === true;
+              if (row.attendanceSource === "not_uploaded" && !manualEntry) return <td key={field} />;
               const key = keyFor(row.employeeCode, field);
               const value = (row as unknown as Record<string, number>)[field];
               const duration = field.endsWith("Minutes");
-              if (field === "holiday") return <td key={field}><div className={row.overriddenFields.includes(field) ? "valueEditor overridden" : "valueEditor"}>
+              if (field === "holiday" && !manualEntry) return <td key={field}><div className={row.overriddenFields.includes(field) ? "valueEditor overridden" : "valueEditor"}>
                 <button type="button" disabled={busy || !!holidayDraft} aria-label={`Adjust holidays for ${row.employeeName}`} onClick={() => void perform(async (current) => {
                   const latest = current.basePayroll.find((item) => item.employeeCode === row.employeeCode)!;
                   setHolidayError(""); setHolidayDraft({ employeeCode: row.employeeCode, name: row.employeeName, holiday: String(latest.holiday), present: String(latest.totalPresent), absent: String(latest.totalAbsent) });

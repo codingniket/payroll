@@ -2,7 +2,7 @@ import type { PayrollVersion, SalaryCalculationMethod } from "@/types/payroll";
 import { exportBase, exportOvertime } from "@/lib/server/export";
 import {
   HttpError, calculateBase, calculateOvertime, compareMethods, currentJob, defaultShift, checkVersion, exitJob,
-  updateAttendance, updateBase, updateOvertime, uploadJob,
+  startManualBase, updateAttendance, updateBase, updateManualBase, updateOvertime, uploadJob,
 } from "@/lib/server/service";
 
 type Context = { params: Promise<{ segments: string[] }> };
@@ -64,6 +64,8 @@ export async function PATCH(request: Request, context: Context) {
     const body = await readBody(request);
     if (pathname === "current/attendance") return json(await updateAttendance(body, body));
     if (pathname === "current/attendance/default-shift") return json(await defaultShift(String(body.employeeCode ?? ""), body));
+    if (pathname === "current/base/manual") return json(await startManualBase(String(body.employeeCode ?? ""), body));
+    if (pathname.startsWith("current/base/manual/")) return json(await updateManualBase(pathname.slice("current/base/manual/".length), body.changes, body));
     if (pathname.startsWith("current/base/")) return json(await updateBase(pathname.slice("current/base/".length), body.changes, body));
     if (pathname.startsWith("current/overtime/")) return json(await updateOvertime(pathname.slice("current/overtime/".length), body.changes, body));
     throw new HttpError("Payroll endpoint was not found.", 404);

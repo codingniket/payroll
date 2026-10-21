@@ -13,7 +13,7 @@ Open `http://localhost:3001`. The new app uses port 3001 deliberately so it cann
 
 Run these commands from the repository root. Python and a separate API server are no longer required. For production, run `npm.cmd run build` followed by `npm.cmd start`.
 
-The employee master and active payroll are stored independently in `data/employee.json` and `data/data.json`. Employee additions, edits, and deletions are written to that file and survive server restarts. XLS, XLSX, and selectable-text PDF attendance registers are accepted.
+The employee master and active payroll are stored independently in `data/employee.json` and `data/data.json`. Employee additions, edits, and deletions are written to that file and survive server restarts. XLS/XLSX and selectable-text PDFs are accepted. PDF input must use either the monthly grid layout or the Employee's Performance Register layout; scanned image-only PDFs need OCR or an Excel export.
 
 On a fresh checkout, add employees through the Employees screen, or copy `data/employee.example.json` to `data/employee.json` and replace the example records. Personal payroll data is ignored by Git. The current local employee master has been preserved.
 
@@ -29,7 +29,8 @@ Use one Node process with a persistent writable data directory. Set `PAYROLL_DAT
 - Increasing Present reduces Absent by the same amount, and vice versa. Changing Holidays opens a dialog asking you to reconcile Present and Absent so the counts total the month's days.
 - Editing an upstream input recalculates dependent totals, replacing older manual overrides on those totals. Unrelated overrides remain. Reset restores the calculated value.
 - Downloads save the focused field and wait for pending changes. Invalid or failed edits block downloading and show an error. Another tab's changes produce a conflict message instead of overwriting them; reload to work from the latest payroll.
-- Employees in the master but missing from the upload remain visible, with identity-only rows and blank values in both workbooks. They contribute no payout. Supply attendance in a new upload to calculate them.
+- Employees in the master but missing from the upload remain visible as blank rows in both workbooks. Base payroll can be entered manually from the Base payroll page; attendance must be supplied to calculate overtime payroll.
+- On Base payroll, choose **Enter payroll manually** for a missing-upload employee to enable direct edits to that employee's payroll values. This does not create, change, or mark attendance as uploaded; review the initialized values before downloading.
 - A monthly count adjustment does not invent daily punches or overtime hours. Correct daily records or edit overtime hours separately when needed.
 
 See [the payroll audit](docs/payroll-audit.md) for formulas, security findings, and remaining limitations.

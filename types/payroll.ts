@@ -53,6 +53,7 @@ export interface PayrollEmployee {
 
 export interface BasePayrollResult {
   attendanceSource?: "uploaded";
+  manualEntry?: true;
   employeeCode: string;
   employeeName: string;
   shiftHours: number;

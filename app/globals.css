@@ -120,6 +120,7 @@ button, a, input, select { outline-offset: 3px; }
 .stickyColumn { position: sticky !important; left: 0; z-index: 3 !important; background: white !important; box-shadow: 1px 0 0 var(--line); }
 th.stickyColumn { background: #f8fafc !important; }
 .employeeCell strong { display: block; min-width: 150px; }
+.employeeCell .button { margin-top: 5px; }
 .payrollTable td { padding: 8px; }
 .valueEditor { display: flex; align-items: center; gap: 3px; padding: 2px; border-radius: 6px; }
 .valueEditor.overridden { background: #fff3d6; }

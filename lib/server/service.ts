@@ -5,7 +5,7 @@ import { calculateBasePayroll } from "./calculations";
 import { canonicalEmployee, employeeForStorage, reconcileEmployees, validateEmployee } from "./employees";
 import type { ServerEmployee, ServerJob } from "./model";
 import { applyPayrollMonth, parseAttendanceFile, validateHolidayDates } from "./parser";
-import { applyPayrollChanges, invalidateDependents, normalizeLegacyOverrides } from "./payroll-rules";
+import { applyPayrollChanges, invalidateDependents, normalizeLegacyOverrides, validateChanges } from "./payroll-rules";
 import { rebuildPayroll } from "./payroll-results";
 import { store, withStoreLock } from "./store";
 import { parseClockMinutes, workedMinutesFromPunches } from "./time";
@@ -167,6 +167,48 @@ function updatePayroll(kind: "base" | "overtime", employeeCode: string, changes:
 }
 export const updateBase = (code: string, changes: unknown, version: Partial<PayrollVersion>) => updatePayroll("base", code, changes, version);
 export const updateOvertime = (code: string, changes: unknown, version: Partial<PayrollVersion>) => updatePayroll("overtime", code, changes, version);
+
+export function startManualBase(employeeCode: string, version: Partial<PayrollVersion>) {
+  return mutateJob(version, (job) => {
+    if (!job.basePayroll.length) throw new HttpError("Calculate base payroll before entering manual payroll.", 409);
+    const employee = job.employees.find((item) => item.employeeCode === employeeCode);
+    if (!employee) throw new HttpError("Employee was not found.", 404);
+    if (employee.attendanceSource !== "not_uploaded") throw new HttpError("This employee already has uploaded attendance.", 409);
+    if (employee.manualBasePayroll) throw new HttpError("Manual payroll entry is already enabled for this employee.", 409);
+    if (!employee.matched) throw new HttpError("Match this employee to the employee list before entering payroll.", 422);
+    const [year, month] = job.month.split("-").map(Number);
+    const monthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const sundays = Array.from({ length: monthDays }, (_, index) => new Date(Date.UTC(year, month - 1, index + 1)))
+      .filter((date) => date.getUTCDay() === 0).length;
+    const additionalHolidays = job.manualHolidayDates.filter((date) => new Date(`${date}T00:00:00Z`).getUTCDay() !== 0).length;
+    const salaryDivisor = job.salaryCalculationMethod === "working_days"
+      ? monthDays - sundays - additionalHolidays
+      : monthDays;
+    if (salaryDivisor <= 0) throw new HttpError("The selected month has no working days for salary calculation.", 422);
+    const salary = employee.salary;
+    employee.manualBasePayroll = {
+      shiftHours: employee.shiftHours, salary, perDay: salary / salaryDivisor, salaryDivisor,
+      totalAbsent: 0, holiday: 0, totalPresent: 0, absentDeduction: 0,
+      totalHoursMinutes: 0, actualHoursWorkedMinutes: 0, advance: employee.advance ?? 0,
+      lateTimeMinutes: 0, lateFine: 0, deduction: 0, netAmount: 0,
+    };
+    rebuildPayroll(job);
+  });
+}
+
+export function updateManualBase(employeeCode: string, input: unknown, version: Partial<PayrollVersion>) {
+  return mutateJob(version, (job) => {
+    const employee = job.employees.find((item) => item.employeeCode === employeeCode);
+    if (!employee) throw new HttpError("Employee was not found.", 404);
+    if (employee.attendanceSource !== "not_uploaded" || !employee.manualBasePayroll) {
+      throw new HttpError("Start manual payroll entry before editing this employee.", 409);
+    }
+    const changes = validateChanges(input, "base", employee.daysInMonth);
+    if (Object.values(changes).some((value) => value === null)) throw new HttpError("Manual payroll values cannot be reset to blank.");
+    Object.assign(employee.manualBasePayroll, changes);
+    rebuildPayroll(job);
+  });
+}
 
 export function calculateOvertime(version: Partial<PayrollVersion>) {
   return mutateJob(version, (job) => {

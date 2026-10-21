@@ -8,7 +8,7 @@ import type { ServerEmployee, ServerJob } from "@/lib/server/model";
 import { applyPayrollChanges } from "@/lib/server/payroll-rules";
 import { rebuildPayroll } from "@/lib/server/payroll-results";
 import { reconcileEmployees } from "@/lib/server/employees";
-import { applyPayrollMonth, parseRegisterRows } from "@/lib/server/parser";
+import { applyPayrollMonth, parseAttendanceFile, parseRegisterRows } from "@/lib/server/parser";
 import { exportBase, exportOvertime } from "@/lib/server/export";
 import { PayrollSaveQueue } from "@/lib/payroll-save-queue";
 
@@ -64,6 +64,36 @@ function attendancePdf() {
   const start = Buffer.byteLength(pdf);
   pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
   return new File([Buffer.from(pdf)], "attendance.pdf");
+}
+
+function employeeProfilePdf() {
+  const blocks = [[29, "A", "Employee One"], [160, "B", "Employee Two"], [292, "C", "Employee Three"]] as const;
+  const headers = ["Shift", "In Time", "Out Time", "Late Mins", "Early Dep", "OT Hrs", "Work Hrs", "Status"];
+  const fieldOffsets = [39, 47.7, 56.2, 64.8, 73.3, 81.9, 90.4, 99];
+  const items: Array<[number, number, string]> = [[16, 404, "Attendance June-2026"]];
+  for (const [base, code, name] of blocks) {
+    items.push([base, 8, "Emp Code :"], [base, 56.5, code], [base, 92, "Emp Name :"], [base, 143.7, name]);
+    headers.forEach((header, index) => items.push([base + fieldOffsets[index], 9, header]));
+    for (let day = 1; day <= 30; day++) {
+      const y = 55 + (day - 1) * 24.5;
+      const present = day === 1;
+      items.push([base + 15, y, String(day)], [base + 27, y - 2, "Mo"]);
+      ["Gene", present ? "08:00" : "", present ? "16:00" : "", "0", "0", "0:00", present ? "8:00" : "0:00", present ? "P" : "A"]
+        .forEach((value, index) => { if (value) items.push([base + fieldOffsets[index], y - 3, value]); });
+    }
+  }
+  const stream = items.map(([x, y, value]) => `BT /F1 7 Tf ${x} ${y} Td (${value}) Tj ET`).join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 820] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const start = Buffer.byteLength(pdf);
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
+  return Buffer.from(pdf);
 }
 
 test("Present 4→7 adjusts absence, payout, and both workbooks", () => {
@@ -249,6 +279,24 @@ test("service saves, exports, imports and revision conflicts use isolated storag
   assert.equal(pdfJob.employees[1].attendanceSource, "not_uploaded");
   const pdfPayroll = await service.calculateBase("total_days", pdfJob);
   assert.equal(pdfPayroll.basePayroll[1].netAmount, null);
+  let manualPayroll = await service.startManualBase("B", pdfPayroll);
+  assert.equal(manualPayroll.employees[1].attendanceSource, "not_uploaded");
+  assert.equal(manualPayroll.employees[1].days.length, 0);
+  assert.equal(manualPayroll.basePayroll[1].manualEntry, true);
+  assert.equal(manualPayroll.basePayroll[1].salary, 40_000);
+  assert.equal(manualPayroll.basePayroll[1].netAmount, 0);
+  manualPayroll = await service.updateManualBase("B", { salary: 45_000, netAmount: 44_000 }, manualPayroll);
+  assert.equal(manualPayroll.employees[1].attendanceSource, "not_uploaded");
+  assert.equal(manualPayroll.employees[1].days.length, 0);
+  assert.equal(manualPayroll.basePayroll[1].netAmount, 44_000);
+  assert.equal(sheetRows(exportBase(manualPayroll.basePayroll))[2][15], 44_000);
+
+  const profilePdf = await parseAttendanceFile(employeeProfilePdf(), ".pdf", "2026-06");
+  assert.deepEqual(profilePdf.employees.map(({ employeeCode }) => employeeCode), ["A", "B", "C"]);
+  assert.equal(profilePdf.employees[0].days.length, 30);
+  assert.equal(profilePdf.employees[0].days[0].status, "present");
+  assert.equal(profilePdf.employees[0].days[1].status, "absent");
+
   // Malformed persisted numeric data must not silently produce an invalid workbook.
   await writeFile(path.join(temporaryDirectory, "data.json"), JSON.stringify({ ...fixture(), employees: [{ ...fixture().employees[0], baseOverrides: { salary: "broken" } }] }));
   await assert.rejects(service.currentJob(), /invalid numeric/);

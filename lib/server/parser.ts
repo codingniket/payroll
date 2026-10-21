@@ -102,10 +102,60 @@ async function pdfRows(buffer: Buffer): Promise<Row[]> {
     const content = await page.getTextContent();
     for (const raw of content.items) {
       const item = raw as { str?: string; transform?: number[] };
-      if (item.str && item.transform) allItems.push({ x: item.transform[4], y: item.transform[5], value: item.str, page: pageNumber });
+      if (item.str?.trim() && item.transform) allItems.push({ x: item.transform[4], y: item.transform[5], value: item.str, page: pageNumber });
     }
   }
   if (!allItems.length) throw new RegisterParseError("The PDF has no selectable attendance table. Upload the Excel file or a text-based PDF.");
+  const profilePages = Array.from({ length: document.numPages }, (_, index) => index + 1)
+    .map((page) => ({ page, items: allItems.filter((item) => item.page === page) }))
+    .filter(({ items }) => items.some((item) => item.value.trim() === "Emp Code :"));
+  if (profilePages.length) {
+    const rows: Row[] = [allItems.map((item) => item.value)];
+    const dailyFields = ["Shift", "In Time", "Out Time", "Late Mins", "Early Dep", "OT Hrs", "Work Hrs", "Status"];
+    for (const { items } of profilePages) {
+      const codeLabels = items.filter((item) => item.value.trim() === "Emp Code :").sort((a, b) => a.x - b.x);
+      for (const codeLabel of codeLabels) {
+        const panelItems = items.filter((item) => item.x >= codeLabel.x && item.x < codeLabel.x + 112);
+        const code = panelItems
+          .filter((item) => Math.abs(item.x - codeLabel.x) < 2 && item.y > codeLabel.y && item.y < codeLabel.y + 80)
+          .sort((a, b) => a.y - b.y)[0]?.value.trim();
+        const nameLabel = panelItems.find((item) => item.value.trim() === "Emp Name :" && Math.abs(item.x - codeLabel.x) < 2);
+        const name = nameLabel && panelItems
+          .filter((item) => Math.abs(item.x - nameLabel.x) < 2 && item.y > nameLabel.y && item.y < nameLabel.y + 100)
+          .sort((a, b) => a.y - b.y)[0]?.value.trim();
+        if (!code || !name) throw new RegisterParseError("An employee block is missing its code or name.");
+
+        const dates = panelItems
+          .filter((item) => item.x - codeLabel.x >= 10 && item.x - codeLabel.x <= 22 && /^(?:[1-9]|[12]\d|3[01])$/.test(item.value.trim()))
+          .map((item) => ({ day: Number(item.value.trim()), y: item.y }))
+          .sort((a, b) => a.day - b.day);
+        if (!dates.length) throw new RegisterParseError(`Daily attendance columns were not found for employee ${code}.`);
+
+        const fieldAnchors = dailyFields.map((field) => {
+          const anchor = panelItems.find((item) => item.value.trim().toLowerCase() === field.toLowerCase()
+            && item.x - codeLabel.x >= 35 && item.x - codeLabel.x <= 110);
+          if (!anchor) throw new RegisterParseError(`Daily attendance columns were not found for employee ${code}.`);
+          return anchor.x;
+        });
+        const dateColumns = Array.from({ length: 32 }, () => null) as unknown[];
+        const weekdayColumns = Array.from({ length: 32 }, () => null) as unknown[];
+        const dailyRows = dailyFields.map(() => Array.from({ length: 32 }, () => null) as unknown[]);
+        for (const { day, y } of dates) {
+          dateColumns[day] = String(day);
+          weekdayColumns[day] = panelItems
+            .filter((item) => item.x - codeLabel.x >= 24 && item.x - codeLabel.x <= 32 && Math.abs(item.y - y) <= 4)
+            .sort((a, b) => Math.abs(a.y - y) - Math.abs(b.y - y))[0]?.value ?? "";
+          for (const [fieldIndex, x] of fieldAnchors.entries()) {
+            dailyRows[fieldIndex][day] = panelItems
+              .filter((item) => Math.abs(item.x - x) < 3 && Math.abs(item.y - y) <= 10)
+              .sort((a, b) => Math.abs(a.y - y) - Math.abs(b.y - y))[0]?.value ?? "";
+          }
+        }
+        rows.push([`Emp Code : ${code}`, `Emp Name : ${name}`], dateColumns, weekdayColumns, ...dailyRows);
+      }
+    }
+    return rows;
+  }
   const xAnchors: number[] = [];
   for (const item of allItems.sort((a, b) => a.x - b.x)) if (!xAnchors.some((x) => Math.abs(x - item.x) < 2)) xAnchors.push(item.x);
   const rows: Row[] = [];

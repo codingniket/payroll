@@ -19,11 +19,14 @@ export function blankOvertime(employee: ServerEmployee): OvertimePayrollRow {
   };
 }
 export function rebuildPayroll(job: ServerJob, overtime = job.overtimePayroll.length > 0) {
-  job.basePayroll = job.employees.map((employee) => employee.attendanceSource === "not_uploaded"
-    ? blankBase(employee) : calculateBasePayroll(employee, job.month, job.manualHolidayDates, job.salaryCalculationMethod));
+  job.basePayroll = job.employees.map((employee) => employee.manualBasePayroll
+    ? { ...employee.manualBasePayroll, employeeCode: employee.employeeCode, employeeName: employee.employeeName, manualEntry: true as const, overriddenFields: [] }
+    : employee.attendanceSource === "not_uploaded"
+      ? blankBase(employee) : calculateBasePayroll(employee, job.month, job.manualHolidayDates, job.salaryCalculationMethod));
   job.overtimePayroll = overtime ? job.employees.map((employee, index) => {
     const base = job.basePayroll[index];
-    return base.attendanceSource === "not_uploaded" ? blankOvertime(employee) : calculateOvertimePayroll(employee, base);
+    if (employee.attendanceSource === "not_uploaded" || base.attendanceSource === "not_uploaded") return blankOvertime(employee);
+    return calculateOvertimePayroll(employee, base);
   }) : [];
   for (const row of [...job.basePayroll, ...job.overtimePayroll]) {
     if (Object.values(row).some((value) => typeof value === "number" && !Number.isFinite(value))) {

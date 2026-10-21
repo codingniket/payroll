@@ -66,6 +66,18 @@ export const payrollApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ changes, jobId: version.jobId, revision: version.revision }),
     }),
+  startManualBase: (employeeCode: string, version: PayrollVersion) =>
+    request<PayrollJob>("/current/base/manual", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeCode, jobId: version.jobId, revision: version.revision }),
+    }),
+  updateManualBase: (employeeCode: string, changes: PayrollChanges, version: PayrollVersion) =>
+    request<PayrollJob>(`/current/base/manual/${encodeURIComponent(employeeCode)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ changes, jobId: version.jobId, revision: version.revision }),
+    }),
   calculateOvertime: (version: PayrollVersion) => request<PayrollJob>("/current/overtime/calculate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: version.jobId, revision: version.revision }) }),
   updateOvertime: (employeeCode: string, changes: PayrollChanges, version: PayrollVersion) =>
     request<PayrollJob>(`/current/overtime/${encodeURIComponent(employeeCode)}`, {
